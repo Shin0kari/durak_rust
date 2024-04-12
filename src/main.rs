@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    io,
     time::Instant,
 };
 
@@ -42,10 +43,10 @@ fn main() {
 
     let mut filled_card_hash = filled_card_hash(&rand_vec_cards, vec_len, trump_volume);
 
-    let bot1_start_deck = gen_deck_in_hand(&filled_card_hash);
+    let bot1_start_deck = gen_deck_in_hand(&filled_card_hash, false);
     filled_card_hash = remove_hand_cards(filled_card_hash, &bot1_start_deck);
 
-    let bot2_start_deck = gen_deck_in_hand(&filled_card_hash);
+    let bot2_start_deck = gen_deck_in_hand(&filled_card_hash, false);
     filled_card_hash = remove_hand_cards(filled_card_hash, &bot2_start_deck);
 
     let elapsed_time = now.elapsed();
@@ -64,13 +65,13 @@ struct GameData {
     attacker_deck: AttackerDeck,
     defending_deck: DefendingDeck,
     deck_of_cards: DeckCards,
-    players_cards: HashMap<Id, Cards>,
+    players_cards: HashMap<Id, PlayersData>,
 }
 
-// нападающий
-struct AttackerDeck {
-    attacking_cards: HashMap<u8, Card>,
-}
+// // нападающий
+// struct AttackerDeck {
+//     attacking_cards: HashMap<u8, Card>,
+// }
 
 // отбивающийся
 struct DefendingDeck {
@@ -78,21 +79,21 @@ struct DefendingDeck {
     defending_cards: HashMap<u8, Card>,
 }
 
-////////
-struct Cards {
-    cards: HashMap<u8, Card>,
-    // 1 нападение, 2 защита, 3, 4 и тд по ре
-    player_state: u8,
-}
+// ////////
+// struct Cards {
+//     cards: HashMap<u8, Card>,
+//     // 1 нападение, 2 защита, 3, 4 и тд по ре
+//     player_state: u8,
+// }
 
-#[derive(Debug, Clone)]
-struct Card {
-    suit: char,
-    trump: bool,
-}
+// #[derive(Debug, Clone)]
+// struct Card {
+//     suit: char,
+//     trump: bool,
+// }
 
 // если младшей козырной карты нет ни у кого на руках, то игрок, который будет ходить первым будет выбираться рандомно
-fn who_is_first(players_cards: HashMap<Id, Cards>) -> Id {
+fn who_is_first(players_cards: HashMap<Id, PlayersData>) -> Id {
     // search by lowest trump card
     let lowest_id: Id = {
         let mut lowest_card = 55;
@@ -135,32 +136,82 @@ fn who_is_first(players_cards: HashMap<Id, Cards>) -> Id {
     lowest_id
 }
 
-fn play_card(attacker_deck: AttackerDeck, players_cards: HashMap<Id, Cards>) {}
+// нападающий
+struct AttackerDeck {
+    attacking_cards: HashMap<u8, Card>,
+}
+
+////////
+struct PlayersData {
+    cards: HashMap<u8, Card>,
+    // 1 нападение, 2 защита, 3, 4 и тд по ре
+    player_state: u8,
+    bot: bool,
+}
+
+#[derive(Debug, Clone)]
+struct Card {
+    suit: char,
+    trump: bool,
+}
+
+fn choose_cards(mut chosen_cards: HashMap<u8, Card>, players_cards: PlayersData) {
+    println!("Your cards: {:?}", players_cards.cards);
+    let mut buffer = String::new();
+    let stdin = io::stdin(); // We get `Stdin` here.
+    stdin.read_line(&mut buffer).unwrap();
+
+    let chosen_card: u8 = match buffer.trim_end().parse::<u8>() {
+        Ok(chosen_cards) => chosen_cards,
+        Err(e) => {
+            println!("Error: {}", e);
+            return;
+        }
+    };
+
+    if players_cards.cards.contains_key(&chosen_card) {
+        let (k, v) = players_cards.cards.get_key_value(&chosen_card).unwrap();
+        chosen_cards.insert(*k, v.clone());
+    } else {
+        println!("Error: card not found");
+    }
+}
+
+fn play_card(mut attacker_deck: AttackerDeck, chosen_cards: HashMap<u8, Card>) {
+    chosen_cards
+        .into_iter()
+        .for_each(|(card_volume, card_data)| {
+            attacker_deck
+                .attacking_cards
+                .insert(card_volume, card_data)
+                .unwrap();
+        })
+}
 
 fn throw_card(
     attacker_deck: AttackerDeck,
     defending_deck: DefendingDeck,
-    players_cards: HashMap<Id, Cards>,
+    players_cards: PlayersData,
 ) {
 }
 
 fn take_all_card(
     attacker_deck: AttackerDeck,
     defending_deck: DefendingDeck,
-    players_cards: HashMap<Id, Cards>,
+    players_cards: PlayersData,
 ) {
 }
 
 fn beat_card(
     attacker_deck: AttackerDeck,
     defending_deck: DefendingDeck,
-    players_cards: HashMap<Id, Cards>,
+    players_cards: PlayersData,
 ) {
 }
 
-fn take_cards_from_deck(filled_card_hash: DeckCards, players_cards: HashMap<Id, Cards>) {}
+fn take_cards_from_deck(filled_card_hash: DeckCards, players_cards: PlayersData) {}
 
-fn remove_hand_cards(mut filled_card_hash: DeckCards, card_hash: &Cards) -> DeckCards {
+fn remove_hand_cards(mut filled_card_hash: DeckCards, card_hash: &PlayersData) -> DeckCards {
     card_hash
         .cards
         .clone()
@@ -223,10 +274,11 @@ fn filling_in_card_data(card_volume: u8, trump_card_location: usize, trump_volum
     }
 }
 
-fn gen_deck_in_hand(filled_card_hash: &DeckCards) -> Cards {
-    let mut card_in_hand = Cards {
+fn gen_deck_in_hand(filled_card_hash: &DeckCards, bot: bool) -> PlayersData {
+    let mut card_in_hand = PlayersData {
         cards: HashMap::new(),
         player_state: 0,
+        bot,
     };
     let del_data = if (filled_card_hash.cards.len() - 7) > 0 {
         7
