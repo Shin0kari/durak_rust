@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 
 use rand::Rng;
 
@@ -6,22 +9,22 @@ use rand::Rng;
 struct DeckCards {
     cards: HashMap<u8, Card>,
     // нужно для присваивания id игрокам
-    id: u8,
+    id: Id,
 }
 
 type Id = u8;
 
-struct Cards {
-    cards: HashMap<u8, Card>,
-    // 1 нападение, 2 защита, 3, 4 и тд по ре
-    player_state: u8,
-}
+// struct Cards {
+//     cards: HashMap<u8, Card>,
+//     // 1 нападение, 2 защита, 3, 4 и тд по ре
+//     player_state: u8,
+// }
 
-#[derive(Debug, Clone)]
-struct Card {
-    suit: char,
-    trump: bool,
-}
+// #[derive(Debug, Clone)]
+// struct Card {
+//     suit: char,
+//     trump: bool,
+// }
 
 fn main() {
     let now = Instant::now();
@@ -75,16 +78,87 @@ struct DefendingDeck {
     defending_cards: HashMap<u8, Card>,
 }
 
-fn who_is_first() {}
-fn play_card() {}
+////////
+struct Cards {
+    cards: HashMap<u8, Card>,
+    // 1 нападение, 2 защита, 3, 4 и тд по ре
+    player_state: u8,
+}
 
-fn throw_card() {}
+#[derive(Debug, Clone)]
+struct Card {
+    suit: char,
+    trump: bool,
+}
 
-fn take_all_card() {}
+// если младшей козырной карты нет ни у кого на руках, то игрок, который будет ходить первым будет выбираться рандомно
+fn who_is_first(players_cards: HashMap<Id, Cards>) -> Id {
+    // search by lowest trump card
+    let lowest_id: Id = {
+        let mut lowest_card = 55;
+        let mut lowest_id = 0;
+        let players_data_with_lowest_card = players_cards
+            .into_iter()
+            .map(|(player_id, cards_data)| {
+                (
+                    player_id,
+                    cards_data
+                        .cards
+                        .iter()
+                        .filter(|(_card_value, card_data)| card_data.trump)
+                        .map(|(card_value, _)| (*card_value))
+                        .collect::<HashSet<u8>>(),
+                )
+            })
+            .collect::<HashMap<Id, HashSet<u8>>>();
 
-fn beat_card() {}
+        if players_data_with_lowest_card.is_empty() {
+            let max_num_players = players_data_with_lowest_card.keys().max().unwrap();
 
-fn take_cards_from_deck() {}
+            let mut rng = rand::thread_rng();
+            lowest_id = rng.gen_range(1..=(*max_num_players as i32)) as u8;
+            lowest_id
+        } else {
+            players_data_with_lowest_card
+                .into_iter()
+                .for_each(|(id, cards)| {
+                    cards.into_iter().for_each(|card| {
+                        lowest_card = card;
+                        lowest_id = id;
+                    });
+                });
+
+            lowest_id
+        }
+    };
+
+    lowest_id
+}
+
+fn play_card(attacker_deck: AttackerDeck, players_cards: HashMap<Id, Cards>) {}
+
+fn throw_card(
+    attacker_deck: AttackerDeck,
+    defending_deck: DefendingDeck,
+    players_cards: HashMap<Id, Cards>,
+) {
+}
+
+fn take_all_card(
+    attacker_deck: AttackerDeck,
+    defending_deck: DefendingDeck,
+    players_cards: HashMap<Id, Cards>,
+) {
+}
+
+fn beat_card(
+    attacker_deck: AttackerDeck,
+    defending_deck: DefendingDeck,
+    players_cards: HashMap<Id, Cards>,
+) {
+}
+
+fn take_cards_from_deck(filled_card_hash: DeckCards, players_cards: HashMap<Id, Cards>) {}
 
 fn remove_hand_cards(mut filled_card_hash: DeckCards, card_hash: &Cards) -> DeckCards {
     card_hash
