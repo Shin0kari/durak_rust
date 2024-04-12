@@ -6,12 +6,12 @@ use std::{
 
 use rand::Rng;
 
-#[derive(Debug, Clone)]
-struct DeckCards {
-    cards: HashMap<u8, Card>,
-    // нужно для присваивания id игрокам
-    id: Id,
-}
+// #[derive(Debug, Clone)]
+// struct DeckCards {
+//     cards: HashMap<u8, Card>,
+//     // нужно для присваивания id игрокам
+//     id: Id,
+// }
 
 type Id = u8;
 
@@ -196,10 +196,27 @@ fn throw_card(
 }
 
 fn take_all_card(
-    attacker_deck: AttackerDeck,
-    defending_deck: DefendingDeck,
-    players_cards: PlayersData,
+    mut attacker_deck: AttackerDeck,
+    mut defending_deck: DefendingDeck,
+    mut players_cards: PlayersData,
 ) {
+    attacker_deck
+        .attacking_cards
+        .iter()
+        .for_each(|(card_volume, card_data)| {
+            players_cards.cards.insert(*card_volume, card_data.clone());
+        });
+
+    defending_deck
+        .defending_cards
+        .iter()
+        .for_each(|(card_volume, card_data)| {
+            players_cards.cards.insert(*card_volume, card_data.clone());
+        });
+
+    attacker_deck.attacking_cards.clear();
+    defending_deck.defending_cards.clear();
+    defending_deck.pairs_beaten_cards.clear();
 }
 
 fn beat_card(
@@ -209,7 +226,29 @@ fn beat_card(
 ) {
 }
 
-fn take_cards_from_deck(filled_card_hash: DeckCards, players_cards: PlayersData) {}
+#[derive(Debug, Clone)]
+struct DeckCards {
+    cards: HashMap<u8, Card>,
+    // нужно для присваивания id игрокам
+    id: Id,
+}
+
+fn take_cards_from_deck(filled_card_hash: DeckCards, mut players_cards: PlayersData) {
+    let num_drawn_cards = 7 - players_cards.cards.len();
+
+    let del_data = if (filled_card_hash.cards.len() - num_drawn_cards) > 0 {
+        num_drawn_cards
+    } else {
+        filled_card_hash.cards.len()
+    };
+    filled_card_hash
+        .cards
+        .iter()
+        .take(del_data)
+        .for_each(|(volume, card_info)| {
+            players_cards.cards.insert(*volume, card_info.clone());
+        });
+}
 
 fn remove_hand_cards(mut filled_card_hash: DeckCards, card_hash: &PlayersData) -> DeckCards {
     card_hash
