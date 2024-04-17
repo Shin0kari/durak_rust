@@ -1,5 +1,4 @@
 use std::{
-    borrow::BorrowMut,
     collections::{HashMap, HashSet},
     io,
     time::Instant,
@@ -11,6 +10,7 @@ type Id = u8;
 
 struct GameData {
     who_attacker: Id,
+    who_defender: Id,
     attacker_deck: AttackerDeck,
     defender_deck: DefenderDeck,
     deck_of_cards: DeckCards,
@@ -86,7 +86,7 @@ fn main() {
     }
 
     for i in 1..=chosen_num {
-        println!("Will player {} be a bot?(true/false): ", chosen_num);
+        println!("Will player {} be a bot?(true/false): ", i);
         let is_bot: bool = read_console().parse::<bool>().unwrap();
 
         let new_player_data = gen_deck_in_hand(&deck_of_cards, is_bot);
@@ -100,96 +100,327 @@ fn main() {
         defender_deck,
         deck_of_cards,
         players_data,
+        who_defender: 0,
     };
 
-    let who_firs_id = who_is_first(deck_data.players_data.clone());
-    deck_data.who_attacker = who_firs_id;
+    deck_data.who_attacker = who_is_first(deck_data.players_data.clone());
+    deck_data.who_defender = deck_data.who_attacker + 1;
 
     println!("\nLets start the game!\n");
-    let win = false;
-    let mut transfered_cards = false;
-    let mut took_cards = false;
-    let mut def_cards = false;
+    let mut win = false;
+    let mut transfered_cards = Some(false);
+    let mut def_cards = Some(false);
+    let mut attack_cards = Some(false);
+    let mut throw_bool = Some(false);
+    let mut whose_turn: (u8, u8) = (1, deck_data.who_attacker);
+    let mut who_last: u8 = deck_data.who_attacker;
 
     while !win {
-        for whose_turn in 1..=chosen_num {
-            let who_id = deck_data.who_attacker + whose_turn - 1;
-            println!("Player {}'s turn", who_id);
+        let who_id = whose_turn.1;
+        println!("Player {}'s turn", who_id);
 
-            match whose_turn {
-                1 => {
-                    let mut chosen_cards: HashMap<u8, Card> = HashMap::new();
+        // 1 - attacker/thrower, 2 - defender, 3.. - throwers
+        match whose_turn.0 {
+            1 => {
+                let mut chosen_cards: HashMap<u8, Card> = HashMap::new();
 
-                    if let Some(mut player_data) = deck_data.players_data.get_mut(&who_id) {
+                if let Some(player_data) = deck_data.players_data.get_mut(&who_id) {
+                    // if !attack_cards.is_some_and(|check| !check) {           ???
+                    if attack_cards.is_some_and(|check| !check) {
                         chose_cards(&mut chosen_cards, &player_data.cards.clone());
                         remove_cards(&mut player_data.cards, &chosen_cards.clone());
                         play_card(&mut deck_data.attacker_deck, chosen_cards);
-                    };
-                }
-                2 => {
-                    if let Some(mut player_data) = deck_data.players_data.get_mut(&who_id) {
-                        // auto remove cards, after fix attacker
-                        println!(
-                            "Attacker deck: {:?}",
-                            deck_data.attacker_deck.attacking_cards
-                        );
-                        println!("Your cards: {:?}", player_data.cards.clone());
-
-                        let transferrable_cards = get_transferrable_cards(
-                            player_data.cards.clone(),
-                            attacker_deck.attacking_cards.clone(),
+                        attack_cards = Some(true);
+                    } else {
+                        let mut allowed_throwable_cards = throwable_cards(
+                            deck_data.attacker_deck.clone(),
+                            deck_data.defender_deck.clone(),
+                            player_data.clone(),
                             vec_len,
                         );
 
-                        let mut check_transfer: bool =
-                            if deck_data.defender_deck.defending_cards.is_empty()
-                                && !transferrable_cards.is_empty()
-                            {
-                                println!(
-                                "Do you want to transfer cards to another player?(true/false): "
-                            );
-                                read_console().parse::<bool>().unwrap()
-                            } else {
-                                false
-                            };
-
-                        if check_transfer {
-                            check_transfer = transfer_cards(
+                        if !allowed_throwable_cards.is_empty() {
+                            throw_bool = Some(throw_cards(
                                 &mut deck_data.attacker_deck,
+                                &deck_data.defender_deck,
                                 player_data,
-                                vec_len,
-                                transferrable_cards,
-                            );
-                            if check_transfer {}
-                        };
-                        if check_transfer {
-                            beat_cards(
-                                &mut deck_data.attacker_deck,
-                                &mut deck_data.defender_deck,
-                                &mut player_data,
-                                vec_len,
-                            );
+                                &mut allowed_throwable_cards,
+                            ));
                         }
                     }
+                };
+            }
+            2 => {
+                if let Some(player_data) = deck_data.players_data.get_mut(&who_id) {
+                    // auto remove cards, later I'll change the attacker to have autoremove too
+                    println!(
+                        "Attacker deck: {:?}",
+                        deck_data.attacker_deck.attacking_cards
+                    );
+                    println!("Your cards: {:?}", player_data.cards.clone());
+
+                    let transferrable_cards = get_transferrable_cards(
+                        player_data.cards.clone(),
+                        deck_data.attacker_deck.attacking_cards.clone(),
+                        vec_len,
+                    );
+
+                    let check_transfer: bool = if deck_data.defender_deck.defending_cards.is_empty()
+                        && !transferrable_cards.is_empty()
+                    {
+                        println!("Do you want to transfer cards to another player?(true/false): ");
+                        read_console().parse::<bool>().unwrap()
+                    } else {
+                        false
+                    };
+
+                    if check_transfer {
+                        transfered_cards = Some(transfer_cards(
+                            &mut deck_data.attacker_deck,
+                            player_data,
+                            transferrable_cards,
+                        ));
+                    } else {
+                        def_cards = Some(beat_cards(
+                            &mut deck_data.attacker_deck,
+                            &mut deck_data.defender_deck,
+                            player_data,
+                            vec_len,
+                        ));
+                    }
                 }
-                3..=8 => {}
-                _ => panic!("PANICAAA!"),
+            }
+            3..=8 => {
+                if let Some(player_data) = deck_data.players_data.get_mut(&who_id) {
+                    let mut allowed_throwable_cards = throwable_cards(
+                        deck_data.attacker_deck.clone(),
+                        deck_data.defender_deck.clone(),
+                        player_data.clone(),
+                        vec_len,
+                    );
+
+                    if !allowed_throwable_cards.is_empty() {
+                        throw_bool = Some(throw_cards(
+                            &mut deck_data.attacker_deck,
+                            &deck_data.defender_deck,
+                            player_data,
+                            &mut allowed_throwable_cards,
+                        ));
+                    }
+                }
+            }
+            _ => panic!("PANICAAA!"),
+        }
+
+        let mut check_player = false;
+        who_last = whose_turn.1;
+        // attack_cards
+        if whose_turn.0 == 1 {
+            if attack_cards.is_some_and(|check| check) {
+                while !check_player {
+                    let mut def_id = whose_turn.1 + 1;
+                    if def_id > chosen_num {
+                        def_id %= chosen_num;
+                    }
+                    if def_id == whose_turn.1 {
+                        win = true;
+                        break;
+                    }
+                    if !deck_data
+                        .players_data
+                        .get(&def_id)
+                        .unwrap()
+                        .cards
+                        .is_empty()
+                    {
+                        check_player = true;
+                        deck_data.who_defender = def_id;
+                        whose_turn = (2, def_id);
+                    };
+                }
+            } else if throw_bool.is_some_and(|check| check) {
+                while !check_player {
+                    let mut def_id = whose_turn.1 + 1;
+                    if def_id > chosen_num {
+                        def_id %= chosen_num;
+                    }
+                    if !deck_data
+                        .players_data
+                        .get(&def_id)
+                        .unwrap()
+                        .cards
+                        .is_empty()
+                    {
+                        check_player = true;
+                        deck_data.who_defender = def_id;
+                        whose_turn = (2, def_id);
+                    };
+                }
+            } else {
+                let mut next_thrower_id = if whose_turn.1 + 2 < 9 {
+                    whose_turn.1 + 2
+                } else {
+                    (whose_turn.1 + 2) % chosen_num
+                };
+
+                while !check_player {
+                    if !deck_data
+                        .players_data
+                        .get(&next_thrower_id)
+                        .unwrap()
+                        .cards
+                        .is_empty()
+                    {
+                        check_player = true;
+                        whose_turn = (3, next_thrower_id);
+                    };
+                    next_thrower_id += 1;
+                    if next_thrower_id > chosen_num {
+                        next_thrower_id %= chosen_num;
+                    }
+                }
+            }
+        }
+        if whose_turn.0 == 2 {
+            if transfered_cards.is_some_and(|check| check) {
+                while !check_player {
+                    let mut def_id = whose_turn.1 + 1;
+                    if def_id > chosen_num {
+                        def_id %= chosen_num;
+                    }
+                    if def_id == whose_turn.1 {
+                        win = true;
+                        break;
+                    }
+                    if !deck_data
+                        .players_data
+                        .get(&def_id)
+                        .unwrap()
+                        .cards
+                        .is_empty()
+                    {
+                        check_player = true;
+                        deck_data.who_attacker = whose_turn.1;
+                        deck_data.who_defender = def_id;
+                        whose_turn = (2, def_id);
+                    };
+                }
+            } else if def_cards.is_some_and(|check| check) {
+                while !check_player {
+                    let mut attacker_id = whose_turn.1 - 1;
+                    if attacker_id == 0 {
+                        attacker_id = chosen_num;
+                    };
+                    if deck_data.players_data.get(&attacker_id).is_some() {
+                        whose_turn = (1, attacker_id);
+                        check_player = true;
+                    } else if attacker_id == whose_turn.1 {
+                        win = true;
+                        check_player = true;
+                    }
+                }
+            } else {
+                while !check_player {
+                    let mut attacker_id = whose_turn.1 + 1;
+                    if attacker_id > chosen_num {
+                        attacker_id %= chosen_num;
+                    }
+                    if attacker_id == whose_turn.1 {
+                        win = true;
+                        break;
+                    }
+                    if deck_data.players_data.get(&attacker_id).is_some() {
+                        whose_turn = (1, attacker_id);
+                        check_player = true;
+                    }
+                }
+            }
+        }
+        if whose_turn.0 > 2 {
+            if throw_bool.is_some_and(|check| check) {
+                whose_turn = (2, deck_data.who_defender);
+            } else {
+                while !check_player {
+                    let mut attacker_id = whose_turn.1 + 1;
+                    if attacker_id > chosen_num {
+                        attacker_id %= chosen_num;
+                    }
+                    if attacker_id == whose_turn.1 {
+                        win = true;
+                        break;
+                    }
+                    if deck_data.players_data.get(&attacker_id).is_some() {
+                        whose_turn = (whose_turn.0 + 1, attacker_id);
+                        check_player = true;
+                    }
+                }
+            }
+        }
+
+        let mut filling_player_id = deck_data.who_attacker;
+        if (transfered_cards.is_some_and(|check| check) || def_cards.is_some())
+            && !deck_data.deck_of_cards.cards.is_empty()
+        {
+            if let Some(player_data) = deck_data.players_data.get_mut(&filling_player_id) {
+                fill_player_deck(&mut deck_data.deck_of_cards, &mut player_data.cards);
+                filling_player_id += 1;
+                while filling_player_id == deck_data.who_attacker
+                    && !deck_data.deck_of_cards.cards.is_empty()
+                {
+                    if let Some(player_data) = deck_data.players_data.get_mut(&filling_player_id) {
+                        fill_player_deck(&mut deck_data.deck_of_cards, &mut player_data.cards);
+                    }
+                    filling_player_id += 1;
+                }
             }
         }
     }
 
+    println!("Durak is {}", who_last);
     let elapsed_time = now.elapsed();
-
-    println!(
-        "The array was generated in {} micros",
-        elapsed_time.as_micros()
-    );
-    // println!("Bot_start_deck: {:?}", bot1_start_deck);
-    // println!("Bot_start_deck: {:?}", bot2_start_deck);
-    // println!("New Rand_deck: {:?}", filled_card_deck);
+    println!("Игра завершена за {} minutes", elapsed_time.as_secs() / 60);
 }
 
-// если младшей козырной карты нет ни у кого на руках, то игрок, который будет ходить первым будет выбираться рандомно
+// Replenishing the missing player cards
+fn fill_player_deck(deck_of_cards: &mut DeckCards, player_cards: &mut HashMap<u8, Card>) {
+    let num_cards_to_fill = {
+        if deck_of_cards.cards.len() < 7 - player_cards.len() {
+            deck_of_cards.cards.len()
+        } else {
+            7
+        }
+    };
+
+    deck_of_cards
+        .cards
+        .iter()
+        .take(num_cards_to_fill)
+        .for_each(|(card_value, card_data)| {
+            player_cards.insert(*card_value, card_data.clone());
+        });
+
+    let cards_id: HashSet<u8> = player_cards
+        .keys()
+        .filter(|card_value| deck_of_cards.cards.contains_key(card_value))
+        .copied()
+        .collect();
+
+    cards_id.iter().for_each(|card_value| {
+        deck_of_cards.cards.remove(card_value);
+    });
+}
+
+// struct GameData {
+//     who_attacker: Id,
+//     who_defender: Id,
+//     attacker_deck: AttackerDeck,
+//     defender_deck: DefenderDeck,
+//     deck_of_cards: DeckCards,
+//     players_data: HashMap<Id, PlayerData>,
+// }
+
+// if no one has the lowest trump card in their hands
+// then the player who goes first will be chosen randomly
 fn who_is_first(players_data: HashMap<Id, PlayerData>) -> Id {
     // search by lowest trump card
     let lowest_id: Id = {
@@ -251,7 +482,6 @@ fn chose_cards(chosen_cards: &mut HashMap<u8, Card>, cards: &HashMap<u8, Card>) 
     } else {
         println!("Error: card not found");
     }
-    // chosen_cards
 }
 
 fn play_card(attacker_deck: &mut AttackerDeck, mut chosen_cards: HashMap<u8, Card>) {
@@ -274,19 +504,16 @@ fn throwable_cards(
     players_data: PlayerData,
     trump_card_location: usize,
 ) -> HashMap<u8, Card> {
-    let allowed_cards_to_throw = {
-        let mut cards: HashMap<u8, Card> = HashMap::new();
-        cards.extend(attacker_deck.attacking_cards);
-        cards.extend(defending_deck.defending_cards);
-        cards
-    };
-
     let div_from_volume = count_div(trump_card_location);
-
-    let allowed_volume: HashSet<u8> = allowed_cards_to_throw
-        .keys()
-        .map(|card_volume| (card_volume % div_from_volume))
-        .collect();
+    let allowed_volume: HashSet<u8> = {
+        let mut allowed_cards: HashMap<u8, Card> = HashMap::new();
+        allowed_cards.extend(attacker_deck.attacking_cards);
+        allowed_cards.extend(defending_deck.defending_cards);
+        allowed_cards
+    }
+    .keys()
+    .map(|card_volume| (card_volume % div_from_volume))
+    .collect();
 
     players_data
         .cards
@@ -298,34 +525,31 @@ fn throwable_cards(
         .collect()
 }
 
-fn what_card_to_throw(
-    attacker_deck: AttackerDeck,
-    defending_deck: DefenderDeck,
-    players_data: PlayerData,
-    trump_card_location: usize,
-) {
+fn throw_cards(
+    attacker_deck: &mut AttackerDeck,
+    defending_deck: &DefenderDeck,
+    players_data: &PlayerData,
+    playable_cards: &mut HashMap<u8, Card>,
+) -> bool {
     if players_data.bot {
         todo!()
     } else {
-        println!("Your cards: {:?}", players_data.cards);
-        println!("Would you like to throw some cards? (true/false)");
-
-        let mut throw_bool: bool = read_console().parse::<bool>().unwrap_or_default();
         let mut num_throwable_cards = defending_deck.how_much_cards_defender_have
             - (defending_deck.pairs_beaten_cards.len() as u8);
 
-        let mut chosen_cards: HashMap<u8, Card> = HashMap::new();
-        let mut playable_cards: HashMap<u8, Card> = HashMap::new();
-        if throw_bool {
-            playable_cards = throwable_cards(
-                attacker_deck.clone(),
-                defending_deck.clone(),
-                players_data.clone(),
-                trump_card_location,
-            );
+        if num_throwable_cards == 0 {
+            return false;
         }
+        println!("Your cards: {:?}", players_data.cards);
+        println!("Would you like to throw some cards? (true/false)");
 
-        while throw_bool || (num_throwable_cards > 0) {
+        let throw_bool: bool = read_console().parse::<bool>().unwrap_or_default();
+
+        let mut chosen_cards: HashMap<u8, Card> = HashMap::new();
+
+        let mut throw_more = true;
+
+        while throw_bool || throw_more {
             println!("You can play with these cards: {:?}", playable_cards);
             println!("Choose the card you want to throw: ");
 
@@ -339,7 +563,7 @@ fn what_card_to_throw(
                 playable_cards.remove(&choosen_card);
                 num_throwable_cards -= 1;
                 println!("Do you want to throw another card? (true/false)");
-                throw_bool = read_console().parse::<bool>().unwrap_or_default();
+                throw_more = read_console().parse::<bool>().unwrap_or_default();
             } else {
                 println!("You chose a card that you don't have");
             }
@@ -348,6 +572,7 @@ fn what_card_to_throw(
         if !chosen_cards.is_empty() {
             play_card(attacker_deck, chosen_cards);
         }
+        throw_bool
     }
 }
 
@@ -390,11 +615,12 @@ fn beat_cards(
     defending_deck: &mut DefenderDeck,
     players_data: &mut PlayerData,
     trump_card_location: usize,
-) {
+) -> bool {
     if players_data.bot {
         todo!()
     } else {
         let mut not_beat_bool = true;
+        let mut def_cards = false;
         // let attacker_deck.attacking_cards = attacker_deck.attacking_cards.clone();
         while not_beat_bool {
             println!("Your cards: {:?}", players_data.cards);
@@ -441,15 +667,17 @@ fn beat_cards(
 
             if attacker_deck.attacking_cards.len() == defending_deck.defending_cards.len() {
                 not_beat_bool = false;
+                def_cards = true;
             }
         }
+
+        def_cards
     }
 }
 
 fn transfer_cards(
     attacker_deck: &mut AttackerDeck,
     players_data: &mut PlayerData,
-    trump_card_location: usize,
     transferrable_cards: HashSet<u8>,
 ) -> bool {
     let mut complete_transfer = false;
@@ -529,7 +757,6 @@ fn count_div(trump_card_location: usize) -> u8 {
     }
 }
 
-// добавить переводную функцию
 fn beatable_cards(
     players_cards: HashMap<u8, Card>,
     attacker_card: (&u8, &Card),
@@ -560,26 +787,26 @@ fn beatable_cards(
     allowed_volume
 }
 
-fn take_cards_from_deck(filled_card_deck: DeckCards, mut players_data: PlayerData) {
-    let num_drawn_cards = 7 - players_data.cards.len();
+// fn take_cards_from_deck(filled_card_deck: DeckCards, mut players_data: PlayerData) {
+//     let num_drawn_cards = 7 - players_data.cards.len();
 
-    let del_data = if (filled_card_deck.cards.len() - num_drawn_cards) > 0 {
-        num_drawn_cards
-    } else {
-        filled_card_deck.cards.len()
-    };
-    filled_card_deck
-        .cards
-        .iter()
-        .take(del_data)
-        .for_each(|(volume, card_info)| {
-            players_data.cards.insert(*volume, card_info.clone());
-        });
-}
+//     let del_data = if (filled_card_deck.cards.len() - num_drawn_cards) > 0 {
+//         num_drawn_cards
+//     } else {
+//         filled_card_deck.cards.len()
+//     };
+//     filled_card_deck
+//         .cards
+//         .iter()
+//         .take(del_data)
+//         .for_each(|(volume, card_info)| {
+//             players_data.cards.insert(*volume, card_info.clone());
+//         });
+// }
 
 // убирает карты из колоды которые были отданы игроку
 fn remove_cards(card_deck: &mut HashMap<u8, Card>, cards: &HashMap<u8, Card>) {
-    cards.clone().into_iter().map(|(card_volume, _)| {
+    cards.clone().into_keys().for_each(|card_volume| {
         if card_deck.contains_key(&card_volume) {
             card_deck.remove(&card_volume);
         }
