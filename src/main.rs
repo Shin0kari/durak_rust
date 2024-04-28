@@ -73,7 +73,8 @@ fn main() {
     rand_vec_cards = rand_vec_cards[1..].to_vec(); // removing a trump card from the queue
     rand_vec_cards.push(trump_volume); // adding a trump card to the queue
 
-    let mut deck_of_cards = filled_card_deck(&rand_vec_cards, vec_len, trump_volume);
+    let div_from_volume = count_div(vec_len);
+    let mut deck_of_cards = filled_card_deck(&rand_vec_cards, div_from_volume, trump_volume);
 
     let mut players_data: HashMap<u8, PlayerData> = HashMap::new();
 
@@ -105,8 +106,15 @@ fn main() {
 
     deck_data.who_attacker = who_is_first(deck_data.players_data.clone());
     deck_data.who_defender = deck_data.who_attacker + 1;
+    deck_data.defender_deck.how_much_cards_defender_have = deck_data
+        .players_data
+        .clone()
+        .get(&deck_data.who_defender)
+        .unwrap()
+        .cards
+        .len() as u8;
 
-    println!("\nLets start the game!\n");
+    println!("\nLet`s start the game!\n");
     let mut win = false;
     let mut transfered_cards = Some(false);
     let mut def_cards = Some(false);
@@ -114,6 +122,7 @@ fn main() {
     let mut throw_bool = Some(false);
     let mut whose_turn: (u8, u8) = (1, deck_data.who_attacker);
     let mut who_last: u8 = deck_data.who_attacker;
+    let mut chosen_cards: HashMap<u8, Card> = HashMap::new();
 
     while !win {
         let who_id = whose_turn.1;
@@ -122,21 +131,24 @@ fn main() {
         // 1 - attacker/thrower, 2 - defender, 3.. - throwers
         match whose_turn.0 {
             1 => {
-                let mut chosen_cards: HashMap<u8, Card> = HashMap::new();
-
                 if let Some(player_data) = deck_data.players_data.get_mut(&who_id) {
                     // if !attack_cards.is_some_and(|check| !check) {           ???
                     if attack_cards.is_some_and(|check| !check) {
-                        chose_cards(&mut chosen_cards, &player_data.cards.clone());
+                        chose_cards(
+                            &mut chosen_cards,
+                            &mut player_data.cards,
+                            &deck_data.defender_deck,
+                            div_from_volume,
+                        );
                         remove_cards(&mut player_data.cards, &chosen_cards.clone());
-                        play_card(&mut deck_data.attacker_deck, chosen_cards);
+                        play_card(&mut deck_data.attacker_deck, &mut chosen_cards);
                         attack_cards = Some(true);
                     } else {
                         let mut allowed_throwable_cards = throwable_cards(
                             deck_data.attacker_deck.clone(),
                             deck_data.defender_deck.clone(),
                             player_data.clone(),
-                            vec_len,
+                            div_from_volume,
                         );
 
                         if !allowed_throwable_cards.is_empty() {
@@ -162,7 +174,7 @@ fn main() {
                     let transferrable_cards = get_transferrable_cards(
                         player_data.cards.clone(),
                         deck_data.attacker_deck.attacking_cards.clone(),
-                        vec_len,
+                        div_from_volume,
                     );
 
                     let check_transfer: bool = if deck_data.defender_deck.defending_cards.is_empty()
@@ -185,7 +197,7 @@ fn main() {
                             &mut deck_data.attacker_deck,
                             &mut deck_data.defender_deck,
                             player_data,
-                            vec_len,
+                            div_from_volume,
                         ));
                     }
                 }
@@ -196,7 +208,7 @@ fn main() {
                         deck_data.attacker_deck.clone(),
                         deck_data.defender_deck.clone(),
                         player_data.clone(),
-                        vec_len,
+                        div_from_volume,
                     );
 
                     if !allowed_throwable_cards.is_empty() {
@@ -464,27 +476,103 @@ fn who_is_first(players_data: HashMap<Id, PlayerData>) -> Id {
     lowest_id
 }
 
-fn chose_cards(chosen_cards: &mut HashMap<u8, Card>, cards: &HashMap<u8, Card>) {
-    // переделать !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    // добавить возможность вбросить несколько карт одной стоимости но разных мастей
-    println!("Your cards: {:?}", cards);
-    println!("Chose cards: ");
+fn check_duplicate_cards(player_cards: &HashMap<u8, Card>, div_from_volume: u8) -> bool {
+    let mut check_duplicate_bool = false;
+    let mut check_duplicate_vec: Vec<u8> = vec![0; div_from_volume as usize];
 
-    let mut buffer = String::new();
-    let stdin = io::stdin(); // We get `Stdin` here.
-    stdin.read_line(&mut buffer).unwrap();
+    player_cards.iter().for_each(|(card_value, _card_data)| {
+        check_duplicate_vec[((card_value - 1) / div_from_volume) as usize] += 1
+    });
 
-    let chose_card: u8 = buffer.trim_end().parse::<u8>().unwrap();
+    check_duplicate_vec.iter().for_each(|card_value| {
+        if *card_value > 1 {
+            check_duplicate_bool = true;
+        }
+    });
 
-    if cards.contains_key(&chose_card) {
-        let (k, v) = cards.get_key_value(&chose_card).unwrap();
-        chosen_cards.insert(*k, v.clone());
+    check_duplicate_bool
+}
+
+fn get_playable_cards_with_duplicate(
+    player_cards: &mut HashMap<u8, Card>,
+    playable_cards: &mut HashMap<u8, Card>,
+    div_from_volume: u8,
+) {
+    if !playable_cards.is_empty() {
+        player_cards.iter().for_each(|(card_value, card_data)| {
+            if (card_value - 1) / div_from_volume
+                == (playable_cards.iter().clone().last().unwrap().0 - 1) / div_from_volume
+            {
+                playable_cards.insert(*card_value, card_data.clone());
+            }
+        })
     } else {
-        println!("Error: card not found");
+        playable_cards.extend(player_cards.clone())
     }
 }
 
-fn play_card(attacker_deck: &mut AttackerDeck, mut chosen_cards: HashMap<u8, Card>) {
+fn chose_cards(
+    chosen_cards: &mut HashMap<u8, Card>,
+    player_cards: &mut HashMap<u8, Card>,
+    defending_deck: &DefenderDeck,
+    div_from_volume: u8,
+) -> bool {
+    let mut num_throwable_cards = defending_deck.how_much_cards_defender_have
+        - (defending_deck.pairs_beaten_cards.len() as u8);
+
+    if num_throwable_cards == 0 {
+        return false;
+    }
+
+    let check_duplicate = check_duplicate_cards(player_cards, div_from_volume);
+    let mut playable_cards: HashMap<u8, Card> = HashMap::new();
+    let mut chosen_card: u8;
+    loop {
+        if check_duplicate {
+            get_playable_cards_with_duplicate(player_cards, &mut playable_cards, div_from_volume);
+
+            let mut throw_more = true;
+
+            while throw_more || num_throwable_cards > 0 {
+                println!("You can play with these cards: {:?}", playable_cards);
+                println!("Choose the card you want to throw: ");
+
+                chosen_card = read_console().parse::<u8>().unwrap();
+
+                if playable_cards.contains_key(&chosen_card) {
+                    chosen_cards.insert(
+                        chosen_card,
+                        playable_cards.get(&chosen_card).unwrap().clone(),
+                    );
+                    playable_cards.remove(&chosen_card);
+                    num_throwable_cards -= 1;
+                    println!("Do you want to throw another card? (true/false)");
+                    throw_more = read_console().parse::<bool>().unwrap_or_default();
+                } else {
+                    println!("You chose a card that you don't have");
+                }
+            }
+            return true;
+        } else {
+            println!("Your cards: {:?}", player_cards);
+            println!("Choose the card you want to throw: ");
+
+            chosen_card = read_console().trim_end().parse::<u8>().unwrap();
+
+            if player_cards.contains_key(&chosen_card) {
+                let (k, v) = player_cards.get_key_value(&chosen_card).unwrap();
+                chosen_cards.insert(*k, v.clone());
+
+                return true;
+            } else {
+                println!("Card not found");
+                continue;
+            }
+        }
+    }
+}
+
+fn play_card(attacker_deck: &mut AttackerDeck, chosen_cards: &mut HashMap<u8, Card>) {
     chosen_cards
         .clone()
         .into_iter()
@@ -502,9 +590,8 @@ fn throwable_cards(
     attacker_deck: AttackerDeck,
     defending_deck: DefenderDeck,
     players_data: PlayerData,
-    trump_card_location: usize,
+    div_from_volume: u8,
 ) -> HashMap<u8, Card> {
-    let div_from_volume = count_div(trump_card_location);
     let allowed_volume: HashSet<u8> = {
         let mut allowed_cards: HashMap<u8, Card> = HashMap::new();
         allowed_cards.extend(attacker_deck.attacking_cards);
@@ -553,14 +640,14 @@ fn throw_cards(
             println!("You can play with these cards: {:?}", playable_cards);
             println!("Choose the card you want to throw: ");
 
-            let choosen_card: u8 = read_console().parse::<u8>().unwrap();
+            let chosen_card: u8 = read_console().parse::<u8>().unwrap();
 
-            if playable_cards.contains_key(&choosen_card) {
+            if playable_cards.contains_key(&chosen_card) {
                 chosen_cards.insert(
-                    choosen_card,
-                    playable_cards.get(&choosen_card).unwrap().clone(),
+                    chosen_card,
+                    playable_cards.get(&chosen_card).unwrap().clone(),
                 );
-                playable_cards.remove(&choosen_card);
+                playable_cards.remove(&chosen_card);
                 num_throwable_cards -= 1;
                 println!("Do you want to throw another card? (true/false)");
                 throw_more = read_console().parse::<bool>().unwrap_or_default();
@@ -570,7 +657,7 @@ fn throw_cards(
         }
 
         if !chosen_cards.is_empty() {
-            play_card(attacker_deck, chosen_cards);
+            play_card(attacker_deck, &mut chosen_cards);
         }
         throw_bool
     }
@@ -614,7 +701,7 @@ fn beat_cards(
     attacker_deck: &mut AttackerDeck,
     defending_deck: &mut DefenderDeck,
     players_data: &mut PlayerData,
-    trump_card_location: usize,
+    div_from_volume: u8,
 ) -> bool {
     if players_data.bot {
         todo!()
@@ -635,7 +722,7 @@ fn beat_cards(
                         .attacking_cards
                         .get_key_value(&chosen_card)
                         .unwrap(),
-                    trump_card_location,
+                    div_from_volume,
                 );
 
                 if defenderable_card.is_empty() {
@@ -714,9 +801,8 @@ fn transfer_cards(
 fn get_transferrable_cards(
     players_cards: HashMap<u8, Card>,
     attacker_cards: HashMap<u8, Card>,
-    trump_card_location: usize,
+    div_from_volume: u8,
 ) -> HashSet<u8> {
-    let div_from_volume = count_div(trump_card_location);
     let mut allowed_volume: HashSet<u8> = HashSet::new();
 
     if attacker_cards.len() < 4 {
@@ -752,7 +838,8 @@ fn count_div(trump_card_location: usize) -> u8 {
         24 => 6,
         36 => 9,
         52 => 13,
-        54 => 15,
+        // здесь баг, считается, что в игре тогда 4 джокера
+        // 54 => 14,
         _ => panic!("A PANIC!"),
     }
 }
@@ -760,9 +847,8 @@ fn count_div(trump_card_location: usize) -> u8 {
 fn beatable_cards(
     players_cards: HashMap<u8, Card>,
     attacker_card: (&u8, &Card),
-    trump_card_location: usize,
+    div_from_volume: u8,
 ) -> HashSet<u8> {
-    let div_from_volume = count_div(trump_card_location);
     let mut allowed_volume: HashSet<u8> = HashSet::new();
 
     if attacker_card.1.trump {
@@ -814,20 +900,20 @@ fn remove_cards(card_deck: &mut HashMap<u8, Card>, cards: &HashMap<u8, Card>) {
 }
 
 // переделать, чтобы была не 54 карта, а 15 карта (т.е. туз для удобства игрока) !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-fn filled_card_deck(rand_vec: &[u8], vec_len: usize, trump_volume: u8) -> DeckCards {
+fn filled_card_deck(rand_vec: &[u8], div_from_volume: u8, trump_volume: u8) -> DeckCards {
     let mut filled_card_deck = DeckCards {
         cards: HashMap::new(),
     };
     rand_vec.iter().for_each(|card| {
-        filled_card_deck
-            .cards
-            .insert(*card, filling_in_card_data(*card, vec_len, trump_volume));
+        filled_card_deck.cards.insert(
+            *card,
+            filling_in_card_data(*card, div_from_volume, trump_volume),
+        );
     });
     filled_card_deck
 }
 
-fn filling_in_card_data(card_volume: u8, trump_card_location: usize, trump_volume: u8) -> Card {
-    let div_from_volume = count_div(trump_card_location);
+fn filling_in_card_data(card_volume: u8, div_from_volume: u8, trump_volume: u8) -> Card {
     // Checking if the card is a trump card
     let trump_data = (((card_volume - 1) / div_from_volume) as i32)
         == ((trump_volume - 1) / div_from_volume) as i32;
